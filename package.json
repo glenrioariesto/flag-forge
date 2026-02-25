@@ -3,15 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "tsx server.ts",
     "build": "next build",
-    "start": "next start",
+    "start": "NODE_ENV=production tsx server.ts",
     "lint": "eslint"
   },
   "dependencies": {
+    "@pixi/react": "^8.0.5",
+    "colyseus": "^0.17.8",
+    "colyseus.js": "^0.16.22",
     "next": "16.1.6",
+    "pixi.js": "^8.16.0",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "tone": "^15.1.22"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -21,6 +26,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }
