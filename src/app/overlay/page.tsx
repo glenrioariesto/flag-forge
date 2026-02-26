@@ -3,38 +3,35 @@
 import { useEffect, useRef, useState } from "react";
 import * as Colyseus from "colyseus.js";
 import * as Tone from "tone";
-
-type WeaponType = "cannon" | "laser" | "rocket";
-
-type FlagItem = {
-    id: string;
-    country: string;
-    x: number;
-    y: number;
-    weapon: WeaponType;
-};
-
-type BulletItem = {
-    id: string;
-    x: number;
-    y: number;
-    weapon: WeaponType;
-};
-
-type LeaderboardItem = {
-    country: string;
-    score: number;
-};
+import { Leaderboard } from "@/components/game/Leaderboard";
+import { FlagData, BulletData, LeaderboardData } from "@/types/game";
+import { Application } from "@pixi/react";
+import { PixiFlag } from "@/components/game/PixiFlag";
+import { PixiBullet } from "@/components/game/PixiBullet";
+import { ChatWindow } from "@/components/game/ChatWindow";
 
 export default function OverlayPage() {
     const [status, setStatus] = useState("Connecting...");
-    const [flags, setFlags] = useState<FlagItem[]>([]);
-    const [bullets, setBullets] = useState<BulletItem[]>([]);
-    const [leaderboard, setLeaderboard] = useState<LeaderboardItem[]>([]);
+    const [flags, setFlags] = useState<FlagData[]>([]);
+    const [bullets, setBullets] = useState<BulletData[]>([]);
+    const [leaderboard, setLeaderboard] = useState<LeaderboardData[]>([]);
+    const [dimensions, setDimensions] = useState({ width: 1920, height: 1080 });
+    const [mounted, setMounted] = useState(false);
+    const [selectedFlag, setSelectedFlag] = useState<FlagData | null>(null);
+    
     const roomRef = useRef<Colyseus.Room | null>(null);
     const synthRef = useRef<Tone.PolySynth | null>(null);
 
     useEffect(() => {
+        setMounted(true);
+        // Initial dimension set
+        setDimensions({ width: window.innerWidth, height: window.innerHeight });
+
+        const handleResize = () => {
+            setDimensions({ width: window.innerWidth, height: window.innerHeight });
+        };
+        window.addEventListener("resize", handleResize);
+
         synthRef.current = new Tone.PolySynth(Tone.Synth).toDestination();
 
         const connectToGame = async () => {
@@ -52,11 +49,12 @@ export default function OverlayPage() {
                 });
 
                 room.onMessage("spawn", () => {
-                    if (synthRef.current) {
-                        Tone.start();
+                    if (synthRef.current && Tone.context.state === "running") {
                         const notes = ["C4", "E4", "G4", "A4", "C5"];
                         const randomNote = notes[Math.floor(Math.random() * notes.length)];
                         synthRef.current.triggerAttackRelease(randomNote, "8n");
+                    } else if (synthRef.current) {
+                         Tone.start().catch(() => {});
                     }
                 });
             } catch (err) {
@@ -68,71 +66,64 @@ export default function OverlayPage() {
         connectToGame();
 
         return () => {
+            window.removeEventListener("resize", handleResize);
             roomRef.current?.leave();
             synthRef.current?.dispose();
         };
     }, []);
 
-    const weaponIcon = (weapon: WeaponType) => {
-        if (weapon === "laser") return "🔫";
-        if (weapon === "rocket") return "🚀";
-        return "💣";
-    };
+    if (!mounted) return null;
 
     return (
-        <div className="w-screen h-screen bg-transparent overflow-hidden text-white font-sans">
+        <div className="w-screen h-screen bg-transparent overflow-hidden text-white font-sans relative">
+            {/* Status Indicator */}
             <div
-                className="absolute top-3 left-3 bg-black/60 px-3 py-2 rounded z-50"
-                style={{ fontSize: "clamp(12px, 1.6vw, 16px)" }}
+                className="absolute top-4 left-4 bg-black/60 backdrop-blur-sm px-4 py-2 rounded-full border border-white/10 z-50 text-xs font-mono text-white/80 shadow-lg"
             >
                 Status: {status}
             </div>
-            <div
-                className="absolute top-3 right-3 bg-black/60 px-3 py-2 rounded z-50 w-[clamp(140px,22vw,280px)]"
-                style={{ fontSize: "clamp(12px, 1.6vw, 16px)" }}
-            >
-                <div className="font-semibold mb-2">Leaderboard</div>
-                <div className="space-y-1">
-                    {leaderboard.length === 0 && <div className="opacity-70">Belum ada skor</div>}
-                    {leaderboard.map((item) => (
-                        <div key={item.country} className="flex items-center justify-between">
-                            <span>{item.country}</span>
-                            <span className="tabular-nums">{item.score}</span>
-                        </div>
-                    ))}
-                </div>
+
+            {/* Leaderboard (HTML Overlay) */}
+            <div className="absolute top-4 right-4 z-50 w-64 transition-opacity duration-300">
+                <Leaderboard data={leaderboard} />
             </div>
-            <div className="absolute inset-0 z-0 pointer-events-none">
-                {flags.map((flag) => (
-                    <div
-                        key={flag.id}
-                        className="absolute shadow-lg border-2 border-white/80 rounded bg-black/40 px-2 py-1"
-                        style={{
-                            left: `${flag.x}%`,
-                            top: `${flag.y}%`
-                        }}
-                    >
-                        <div className="flex items-center gap-2" style={{ fontSize: "clamp(14px, 2.2vw, 24px)" }}>
-                            <span>{flag.country}</span>
-                            <span style={{ fontSize: "clamp(16px, 2.4vw, 26px)" }}>{weaponIcon(flag.weapon)}</span>
-                        </div>
-                    </div>
-                ))}
-            </div>
-            <div className="absolute inset-0 z-10 pointer-events-none">
-                {bullets.map((bullet) => (
-                    <div
-                        key={bullet.id}
-                        className="absolute"
-                        style={{
-                            left: `${bullet.x}%`,
-                            top: `${bullet.y}%`,
-                            fontSize: "clamp(12px, 1.6vw, 20px)"
-                        }}
-                    >
-                        {weaponIcon(bullet.weapon)}
-                    </div>
-                ))}
+
+            {/* Chat Window */}
+            {selectedFlag && (
+                <ChatWindow 
+                    flag={selectedFlag} 
+                    onClose={() => setSelectedFlag(null)} 
+                />
+            )}
+
+            {/* PixiJS Game Stage */}
+            <div className="absolute inset-0 z-0">
+                <Application 
+                    width={dimensions.width} 
+                    height={dimensions.height} 
+                    backgroundAlpha={0}
+                    antialias={true}
+                >
+                    <pixiContainer>
+                        {flags.map((flag) => (
+                            <PixiFlag 
+                                key={flag.id} 
+                                flag={flag} 
+                                screenWidth={dimensions.width}
+                                screenHeight={dimensions.height}
+                                onSelect={setSelectedFlag}
+                            />
+                        ))}
+                        {bullets.map((bullet) => (
+                            <PixiBullet 
+                                key={bullet.id} 
+                                bullet={bullet} 
+                                screenWidth={dimensions.width}
+                                screenHeight={dimensions.height}
+                            />
+                        ))}
+                    </pixiContainer>
+                </Application>
             </div>
         </div>
     );

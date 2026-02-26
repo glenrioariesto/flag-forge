@@ -1,36 +1,85 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Flag Forge
 
-## Getting Started
+Realtime YouTube Live chat → game overlay. Chat messages spawn moving flags with weapons, bullets, and a leaderboard. The overlay is built with Next.js + Colyseus and is ready to be used as an OBS browser source.
 
-First, run the development server:
+## Fitur Utama
+
+- Realtime spawn dari YouTube Live Chat
+- Bendera bergerak, menembak, dan collision sederhana
+- Leaderboard per negara
+- Overlay responsif untuk OBS
+- Batas jumlah bendera aktif + antrean untuk menjaga performa
+- **Custom Flag Support**: Mendukung gambar bendera custom atau otomatis dari CDN.
+
+## Teknologi
+
+- Next.js (app router)
+- Colyseus (server WebSocket)
+- Tone.js (audio)
+
+## Menjalankan Lokal
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000 (akan redirect ke /overlay).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Konfigurasi Environment
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Buat file `.env` lalu isi salah satu opsi berikut:
 
-## Learn More
+Minimal (pakai videoId):
 
-To learn more about Next.js, take a look at the following resources:
+```
+YOUTUBE_API_KEY=YOUR_KEY
+YOUTUBE_VIDEO_ID=LIVE_VIDEO_ID
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Atau langsung liveChatId:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+YOUTUBE_API_KEY=YOUR_KEY
+YOUTUBE_LIVE_CHAT_ID=LIVE_CHAT_ID
+```
 
-## Deploy on Vercel
+Opsional:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+YOUTUBE_POLL_INTERVAL_MS=5000
+PORT=3000
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Cara Pakai
+
+1. Pastikan live stream sudah berjalan.
+2. Set `.env` sesuai konfigurasi di atas.
+3. Jalankan `npm run dev`.
+4. Buka `/overlay` di browser atau OBS Browser Source.
+5. Chat masuk akan dimasukkan antrean dan spawn bertahap.
+
+## Custom Flag Images
+
+Secara default, aplikasi akan mencoba memuat gambar bendera dari CDN (`flagcdn.com`) jika input adalah kode negara 2 huruf (contoh: ID, US, JP).
+
+Jika Anda memiliki gambar bendera sendiri (misal untuk komunitas tertentu atau nama negara lengkap):
+1. Buat folder `flags` di dalam folder `public` (`public/flags/`).
+2. Simpan file gambar **.png** di folder tersebut.
+3. Beri nama file sesuai dengan teks yang dikirim di chat (huruf kecil).
+   - Contoh: Jika user mengetik "Indo", simpan sebagai `public/flags/indo.png`.
+   - Contoh: Jika user mengetik "MyCommunity", simpan sebagai `public/flags/mycommunity.png`.
+4. Aplikasi akan memprioritaskan file lokal ini. Jika tidak ditemukan, akan mencoba CDN (jika 2 huruf) atau menampilkan teks.
+
+## Pengaturan Performa (Server)
+
+Konfigurasi ini ada di `src/game/FlagRoom.ts`:
+
+- `maxActiveFlags` membatasi jumlah bendera aktif
+- `maxQueueSize` membatasi antrean chat
+- `spawnRatePerSecond` membatasi kecepatan spawn
+
+## Catatan
+
+- YouTube Data API v3 wajib diaktifkan di project GCP.
+- Chat hanya tersedia saat live stream aktif.
