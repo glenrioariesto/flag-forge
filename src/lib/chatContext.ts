@@ -1,3 +1,5 @@
+import { DEFAULT_COUNTRY, DEFAULT_WEAPON } from "@/types/game";
+
 /**
  * Extracts flag-chat context (country / weapon / last user message)
  * from an OpenAI-style message list. Pure function, unit-testable.
@@ -12,8 +14,8 @@ export type ChatContext = {
 type Msg = { role?: unknown; content?: unknown };
 
 export function extractContext(messages: unknown): ChatContext {
-    let country = "ID";
-    let weapon = "cannon";
+    let country = DEFAULT_COUNTRY;
+    let weapon: string = DEFAULT_WEAPON;
     let userMessage = "";
 
     if (!Array.isArray(messages)) return { country, weapon, userMessage };

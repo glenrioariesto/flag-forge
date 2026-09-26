@@ -33,6 +33,10 @@ export default function OverlayPage() {
     const roomRef = useRef<Colyseus.Room | null>(null);
 
     useEffect(() => {
+        let cancelled = false;
+        let retryCount = 0;
+        let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
         const handleResize = () => {
             setDimensions({ width: window.innerWidth, height: window.innerHeight });
         };
@@ -52,13 +56,25 @@ export default function OverlayPage() {
         };
         window.addEventListener("pointerdown", handleInteraction, { once: false });
 
+        // One client for the lifetime of the effect, reused across retries.
+        // Building a fresh Colyseus.Client per attempt leaves every failed
+        // client's transport/connection manager alive, which piles up over an
+        // hours-long OBS session against a server that is down.
+        const colyseusUrl =
+            process.env.NEXT_PUBLIC_COLYSEUS_URL || "ws://localhost:3001";
+        const client = new Colyseus.Client(colyseusUrl);
+
         const connectToGame = async () => {
+            // Bail out if the component unmounted while a retry was pending.
+            if (cancelled) return;
             try {
-                const colyseusUrl =
-                    process.env.NEXT_PUBLIC_COLYSEUS_URL || "ws://localhost:3001";
-                const client = new Colyseus.Client(colyseusUrl);
                 const room = await client.joinOrCreate("flag_room");
+                if (cancelled) {
+                    room.leave();
+                    return;
+                }
                 roomRef.current = room;
+                retryCount = 0;
 
                 setStatus(`Live Engine Connected`);
 
@@ -85,32 +101,44 @@ export default function OverlayPage() {
                     audioSystem.playWinnerFanfare();
                 });
             } catch (err) {
-                setStatus("Connection failed - Retrying in 5s...");
+                if (cancelled) return;
+                // Exponential backoff: 5s, 10s, 20s ... capped at 60s so OBS
+                // recovers by itself after a server restart/network blip.
+                retryCount += 1;
+                const delayMs = Math.min(60000, 5000 * Math.pow(2, retryCount - 1));
+                setStatus(
+                    `Connection failed (${colyseusUrl}) - Retrying in ${Math.round(delayMs / 1000)}s...`,
+                );
                 console.error(err);
-                setTimeout(connectToGame, 5000);
+                retryTimer = setTimeout(connectToGame, delayMs);
             }
         };
 
         connectToGame();
 
         return () => {
+            cancelled = true;
             cancelAnimationFrame(raf);
             window.removeEventListener("resize", handleResize);
             window.removeEventListener("pointerdown", handleInteraction);
+            if (retryTimer) clearTimeout(retryTimer);
             roomRef.current?.leave();
+            roomRef.current = null;
             audioSystem.dispose();
         };
     }, []);
 
     const toggleAudio = async (e: React.MouseEvent) => {
         e.stopPropagation();
-        if (!audioSystem.isAudioRunning()) {
+        // Engine not started yet → start it. Already started → flip mute.
+        // (Using isAudioRunning() here would trap us in muted state, since a
+        // muted engine reports running=false and initialize() is a no-op.)
+        if (!audioSystem.isEngineStarted()) {
             await audioSystem.initialize();
-            setIsAudioActive(true);
         } else {
-            const isMuted = audioSystem.toggleMute();
-            setIsAudioActive(!isMuted);
+            audioSystem.toggleMute();
         }
+        setIsAudioActive(audioSystem.isAudioRunning());
     };
 
     if (!mounted) return null;

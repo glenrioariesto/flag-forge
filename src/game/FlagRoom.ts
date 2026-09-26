@@ -1,9 +1,7 @@
 import { Room, Client } from "colyseus";
 import { youtubeChat, ChatMessage } from "../services/youtube";
-import { GameStatePayload, WeaponType } from "../types/game";
+import { GameStatePayload, WeaponType, WEAPON_TYPES } from "../types/game";
 import { extractCountryCode } from "../lib/country";
-
-const weaponTypes = ["cannon", "laser", "rocket"] as const;
 
 const BOT_COUNTRIES = [
     "ID", "US", "JP", "BR", "FR", "DE", "KR", "GB",
@@ -64,15 +62,7 @@ export class FlagRoom extends Room {
     onCreate() {
         this.maxClients = 150;
 
-        youtubeChat.on("chat_message", (data: ChatMessage) => {
-            const raw = String(data.message || "").trim();
-            // Match 2-3 letter country code or known flag aliases
-            const cleanCountry = this.extractCountryCode(raw);
-            if (!cleanCountry) return;
-
-            this.lastUserChatTime = Date.now();
-            this.enqueueSpawn(cleanCountry, data.author || "Viewer", false);
-        });
+        youtubeChat.on("chat_message", this.handleChatMessage);
 
         const interval = Math.floor(1000 / this.tickRate);
         this.tickTimer = setInterval(() => this.step(1 / this.tickRate), interval);
@@ -80,6 +70,25 @@ export class FlagRoom extends Room {
         // Pre-populate with initial friendly bots so screen is lively immediately
         this.populateInitialBots();
     }
+
+    private handleChatMessage = (data: ChatMessage) => {
+        const raw = String(data.message || "").trim();
+        // Match 2-4 letter country code or known flag aliases
+        const cleanCountry = extractCountryCode(raw);
+        if (!cleanCountry) return;
+
+        // Mock/simulator traffic keeps the screen alive but must not pollute
+        // real-player stats or suppress the idle bot spawner.
+        const isMock = data.isFallbackMock === true;
+        this.enqueueSpawn(
+            cleanCountry,
+            data.author || (isMock ? "Mock" : "Viewer"),
+            isMock,
+        );
+        if (!isMock) {
+            this.lastUserChatTime = Date.now();
+        }
+    };
 
     private populateInitialBots() {
         const initial = ["ID", "US", "JP", "BR", "FR", "KR", "DE", "GB"];
@@ -97,6 +106,7 @@ export class FlagRoom extends Room {
     }
 
     onDispose() {
+        youtubeChat.off("chat_message", this.handleChatMessage);
         if (this.tickTimer) {
             clearInterval(this.tickTimer);
             this.tickTimer = null;
@@ -162,17 +172,13 @@ export class FlagRoom extends Room {
         }
     }
 
-    private extractCountryCode(text: string): string | null {
-        return extractCountryCode(text);
-    }
-
     private spawnFlag(country: string, author: string, isBot: boolean) {
         const id = `f_${this.nextId++}`;
         const x = 10 + Math.random() * 80;
         const y = 10 + Math.random() * 80;
         const speed = isBot ? (6 + Math.random() * 5) : (8 + Math.random() * 6);
         const angle = Math.random() * Math.PI * 2;
-        const weapon = weaponTypes[this.nextWeaponIndex % weaponTypes.length];
+        const weapon = WEAPON_TYPES[this.nextWeaponIndex % WEAPON_TYPES.length];
         this.nextWeaponIndex += 1;
 
         const flag: FlagEntity = {

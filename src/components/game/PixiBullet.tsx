@@ -2,6 +2,14 @@ import * as PIXI from "pixi.js";
 import { useMemo } from "react";
 import { BulletData } from "@/types/game";
 
+// Shared style: constructing a TextStyle forces a Pixi text re-layout, and
+// bullets churn constantly (one mount per spawn, up to ~100 alive), so this
+// must be a module-level singleton rather than a per-component allocation.
+const BULLET_TEXT_STYLE = new PIXI.TextStyle({
+    fontSize: 20, // clamp(12px, 1.5vw, 20px) - using fixed for now or pass scale
+    fill: '#ffffff',
+});
+
 interface PixiBulletProps {
     bullet: BulletData;
     screenWidth: number;
@@ -21,20 +29,12 @@ export const PixiBullet = ({ bullet, screenWidth, screenHeight }: PixiBulletProp
         }
     }, [bullet.weapon]);
 
-    const style = useMemo(() => {
-        return new PIXI.TextStyle({
-            fontSize: 20, // clamp(12px, 1.5vw, 20px) - using fixed for now or pass scale
-            fill: '#ffffff',
-            // dropShadow: true... Pixi text shadow is expensive?
-        });
-    }, []);
-
     return (
         <pixiContainer x={x} y={y}>
             <pixiText 
                 text={weaponIcon} 
                 anchor={0.5} 
-                style={style}
+                style={BULLET_TEXT_STYLE}
             />
         </pixiContainer>
     );

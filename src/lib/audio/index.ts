@@ -7,6 +7,8 @@ import * as Tone from "tone";
 export class LoFiAudioSystem {
     private isStarted = false;
     private isMuted = false;
+    private initializing: Promise<void> | null = null;
+    private fanfareTimeouts: Array<ReturnType<typeof setTimeout>> = [];
 
     // Instruments
     private pianoSynth!: Tone.PolySynth;
@@ -44,76 +46,85 @@ export class LoFiAudioSystem {
 
     public async initialize() {
         if (this.isStarted) return;
+        // Guard against concurrent calls (e.g. rapid double-clicks) creating duplicate nodes.
+        if (this.initializing) return this.initializing;
 
-        try {
-            await Tone.start();
+        this.initializing = (async () => {
+            try {
+                await Tone.start();
 
-            // FX Chain for Warm Lo-Fi Aesthetic
-            this.filter = new Tone.Filter({
-                frequency: 1600,
-                type: "lowpass",
-                rolloff: -12
-            }).toDestination();
+                // FX Chain for Warm Lo-Fi Aesthetic
+                this.filter = new Tone.Filter({
+                    frequency: 1600,
+                    type: "lowpass",
+                    rolloff: -12
+                }).toDestination();
 
-            this.reverb = new Tone.Reverb({
-                decay: 2.5,
-                preDelay: 0.05,
-                wet: 0.35
-            }).connect(this.filter);
+                this.reverb = new Tone.Reverb({
+                    decay: 2.5,
+                    preDelay: 0.05,
+                    wet: 0.35
+                }).connect(this.filter);
 
-            this.chorus = new Tone.Chorus({
-                frequency: 1.5,
-                delayTime: 3.5,
-                depth: 0.6,
-                wet: 0.3
-            }).connect(this.reverb);
+                this.chorus = new Tone.Chorus({
+                    frequency: 1.5,
+                    delayTime: 3.5,
+                    depth: 0.6,
+                    wet: 0.3
+                }).connect(this.reverb);
 
-            // Lo-Fi Electric Piano
-            this.pianoSynth = new Tone.PolySynth(Tone.Synth, {
-                oscillator: { type: "triangle" },
-                envelope: {
-                    attack: 0.04,
-                    decay: 1.2,
-                    sustain: 0.3,
-                    release: 1.4
-                }
-            }).connect(this.chorus);
-            this.pianoSynth.volume.value = -14;
+                // Lo-Fi Electric Piano
+                this.pianoSynth = new Tone.PolySynth(Tone.Synth, {
+                    oscillator: { type: "triangle" },
+                    envelope: {
+                        attack: 0.04,
+                        decay: 1.2,
+                        sustain: 0.3,
+                        release: 1.4
+                    }
+                }).connect(this.chorus);
+                this.pianoSynth.volume.value = -14;
 
-            // Reactive Pentatonic Synth
-            this.leadSynth = new Tone.PolySynth(Tone.Synth, {
-                oscillator: { type: "sine" },
-                envelope: {
-                    attack: 0.02,
-                    decay: 0.3,
-                    sustain: 0.1,
-                    release: 0.5
-                }
-            }).connect(this.reverb);
-            this.leadSynth.volume.value = -12;
+                // Reactive Pentatonic Synth
+                this.leadSynth = new Tone.PolySynth(Tone.Synth, {
+                    oscillator: { type: "sine" },
+                    envelope: {
+                        attack: 0.02,
+                        decay: 0.3,
+                        sustain: 0.1,
+                        release: 0.5
+                    }
+                }).connect(this.reverb);
+                this.leadSynth.volume.value = -12;
 
-            // Hit / Laser SFX Synth
-            this.sfxSynth = new Tone.PolySynth(Tone.MembraneSynth).connect(this.reverb);
-            this.sfxSynth.volume.value = -18;
+                // Hit / Laser SFX Synth
+                this.sfxSynth = new Tone.PolySynth(Tone.MembraneSynth).connect(this.reverb);
+                this.sfxSynth.volume.value = -18;
 
-            // Set Lo-Fi BPM
-            Tone.getTransport().bpm.value = 76;
+                // Set Lo-Fi BPM
+                Tone.getTransport().bpm.value = 76;
 
-            // Background Lo-Fi Chords Loop (plays every 2 measures)
-            this.loFiLoop = new Tone.Loop((time) => {
-                const chord = this.chords[this.currentChordIndex];
-                this.pianoSynth.triggerAttackRelease(chord, "2n", time);
-                this.currentChordIndex = (this.currentChordIndex + 1) % this.chords.length;
-            }, "2m");
+                // Background Lo-Fi Chords Loop (plays every 2 measures)
+                this.loFiLoop = new Tone.Loop((time) => {
+                    const chord = this.chords[this.currentChordIndex];
+                    this.pianoSynth.triggerAttackRelease(chord, "2n", time);
+                    this.currentChordIndex = (this.currentChordIndex + 1) % this.chords.length;
+                }, "2m");
 
-            this.loFiLoop.start(0);
-            Tone.getTransport().start();
+                this.loFiLoop.start(0);
+                Tone.getTransport().start();
 
-            this.isStarted = true;
-            console.log("[LoFiAudio] Engine started with 76 BPM Lo-Fi stream ambiance.");
-        } catch (e) {
-            console.error("[LoFiAudio] Initialization error:", e);
-        }
+                this.isStarted = true;
+                console.log("[LoFiAudio] Engine started with 76 BPM Lo-Fi stream ambiance.");
+            } catch (e) {
+                console.error("[LoFiAudio] Initialization error:", e);
+            } finally {
+                // Allow retry on failure; keep the (possibly partial) guard cleared either way.
+                this.initializing = null;
+            }
+        })();
+
+        return this.initializing;
     }
 
     public playSpawnNote(countryCode: string) {
@@ -133,16 +144,28 @@ export class LoFiAudioSystem {
 
     public playWinnerFanfare() {
         if (!this.isStarted || this.isMuted) return;
+        // Track timeouts so dispose()/mute can cancel a fanfare mid-flight
+        // instead of firing into disposed synths.
+        this.clearFanfare();
         const fanfare = ["C4", "E4", "G4", "C5", "E5"];
         fanfare.forEach((n, idx) => {
-            setTimeout(() => {
-                this.leadSynth.triggerAttackRelease(n, "4n");
-            }, idx * 120);
+            this.fanfareTimeouts.push(
+                setTimeout(() => {
+                    if (!this.isStarted || this.isMuted) return;
+                    this.leadSynth.triggerAttackRelease(n, "4n");
+                }, idx * 120),
+            );
         });
+    }
+
+    private clearFanfare() {
+        for (const t of this.fanfareTimeouts) clearTimeout(t);
+        this.fanfareTimeouts = [];
     }
 
     public toggleMute(): boolean {
         this.isMuted = !this.isMuted;
+        if (this.isMuted) this.clearFanfare();
         if (this.filter) {
             Tone.getDestination().mute = this.isMuted;
         }
@@ -153,7 +176,16 @@ export class LoFiAudioSystem {
         return this.isStarted && !this.isMuted;
     }
 
+    public isMutedState(): boolean {
+        return this.isMuted;
+    }
+
+    public isEngineStarted(): boolean {
+        return this.isStarted;
+    }
+
     public dispose() {
+        this.clearFanfare();
         this.loFiLoop?.dispose();
         this.pianoSynth?.dispose();
         this.leadSynth?.dispose();
@@ -163,6 +195,12 @@ export class LoFiAudioSystem {
         this.chorus?.dispose();
         Tone.getTransport().stop();
         this.isStarted = false;
+        // Reset the mute latch too. This is a module singleton, so leaving
+        // isMuted/Tone's destination muted here means the engine rebuilds
+        // itself already-silent after a remount (React strict-mode double
+        // mount in dev, or an OBS source reload).
+        this.isMuted = false;
+        Tone.getDestination().mute = false;
     }
 }
 

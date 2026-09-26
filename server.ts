@@ -37,12 +37,28 @@ app.prepare().then(() => {
 
     gameServer.define("flag_room", FlagRoom);
 
-    server.listen(port, () => {
+    const nextServer = server.listen(port, () => {
         console.log(`> Next.js overlay ready on http://${hostname}:${port}`);
     });
+    nextServer.on("error", (err: NodeJS.ErrnoException) => {
+        if (err.code === "EADDRINUSE") {
+            console.error(`[Server] Port ${port} already in use. Set PORT to a free port.`);
+        } else {
+            console.error("[Server] HTTP server error:", err);
+        }
+        process.exit(1);
+    });
 
-    colyseusServer.listen(colyseusPort, () => {
+    const colyseusListener = colyseusServer.listen(colyseusPort, () => {
         console.log(`> Colyseus game engine listening on ws://${hostname}:${colyseusPort}`);
+    });
+    colyseusListener.on("error", (err: NodeJS.ErrnoException) => {
+        if (err.code === "EADDRINUSE") {
+            console.error(`[Server] Colyseus port ${colyseusPort} already in use. Set COLYSEUS_PORT to a free port.`);
+        } else {
+            console.error("[Server] Colyseus server error:", err);
+        }
+        process.exit(1);
     });
 
     import("./src/services/youtube").then(({ youtubeChat }) => {
@@ -53,9 +69,27 @@ app.prepare().then(() => {
                 liveChatId: youtubeLiveChatId,
                 videoId: youtubeVideoId,
                 pollIntervalMs: Number.isNaN(pollIntervalMs ?? 0) ? undefined : pollIntervalMs
+            }).catch((err) => {
+                console.error("[YouTubeChat] Failed to start listening:", err);
             });
         } else {
-            console.log("[YouTubeChat] Set YOUTUBE_VIDEO_ID (zero-quota scraper) or YOUTUBE_API_KEY in .env to connect to live chat.");
+            console.log("[YouTubeChat] Set YOUTUBE_VIDEO_ID (zero-quota scraper) or YOUTUBE_API_KEY in .env to connect to live chat. Running game with bot simulation only.");
         }
+    }).catch((err) => {
+        console.error("[YouTubeChat] Failed to load chat service:", err);
     });
+
+    const shutdown = (signal: string) => {
+        console.log(`[Server] Received ${signal}, shutting down...`);
+        try {
+            void gameServer.gracefullyShutdown(false);
+        } catch (err) {
+            console.error("[Server] Error during Colyseus shutdown:", err);
+        }
+        nextServer.close(() => process.exit(0));
+        // Failsafe: force-exit if connections hang
+        setTimeout(() => process.exit(0), 5000).unref();
+    };
+    process.on("SIGINT", () => shutdown("SIGINT"));
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
 });

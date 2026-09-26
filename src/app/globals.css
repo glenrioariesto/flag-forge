@@ -1,26 +1,38 @@
 @import "tailwindcss";
 
+/* The overlay is composited over the OBS video layer, so the page itself must
+   stay transparent. A body background here is painted behind the canvas no
+   matter what the overlay draws, which silently defeats the OBS browser
+   source "Transparent" toggle. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #ededed;
 }
 
 @theme inline {
-  --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* WinnerBanner remounts every round and asks for animate-fade-in. Tailwind has
+   no such utility built in, so without this the class is silently inert. */
+@theme {
+  --animate-fade-in: fade-in 0.4s ease-out both;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
   }
 }
 
 body {
-  background: var(--background);
+  background: transparent;
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }

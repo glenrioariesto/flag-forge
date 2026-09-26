@@ -74,6 +74,7 @@ export class YouTubeChatService extends EventEmitter {
     private webApiKey: string | null = null;
     private enableMockFallback = true;
     private lastMessageReceivedTime = Date.now();
+    private scraperReinitAttempts = 0;
 
     public async startListening(options: StartOptions) {
         if (this.isListening) return;
@@ -147,10 +148,18 @@ export class YouTubeChatService extends EventEmitter {
             clearInterval(this.mockInterval);
             this.mockInterval = null;
         }
+        this.resetTransportState();
+        this.scraperReinitAttempts = 0;
+        console.log("[YouTubeChat] Stopped listening.");
+    }
+
+    private resetTransportState() {
         this.nextPageToken = null;
         this.liveChatId = null;
         this.continuationToken = null;
-        console.log("[YouTubeChat] Stopped listening.");
+        this.webApiKey = null;
+        this.isScraperMode = false;
+        this.consecutiveErrors = 0;
     }
 
     private async pollLoop() {
@@ -190,16 +199,22 @@ export class YouTubeChatService extends EventEmitter {
 
             // Exponential backoff & auto-recovery
             const backoff = Math.min(25000, this.pollIntervalMs * Math.pow(1.4, Math.min(this.consecutiveErrors, 5)));
-            if (this.isListening) {
-                this.pollTimeout = setTimeout(() => void this.pollLoop(), backoff);
-            }
+            this.scheduleNextPoll(backoff);
             return;
         }
 
+        this.scheduleNextPoll(this.pollIntervalMs);
+    }
+
+    private scheduleNextPoll(delayMs: number) {
         if (!this.isListening) return;
+        if (this.pollTimeout) {
+            clearTimeout(this.pollTimeout);
+        }
         this.pollTimeout = setTimeout(() => {
+            this.pollTimeout = null;
             void this.pollLoop();
-        }, this.pollIntervalMs);
+        }, delayMs);
     }
 
     private async fetchMessages(): Promise<ChatMessage[]> {
@@ -299,17 +314,29 @@ export class YouTubeChatService extends EventEmitter {
             await this.pollLoop();
         } catch (e) {
             console.error("[YouTubeChat] Scraper init warning, will retry in 10s:", e);
-            if (this.isListening) {
-                this.pollTimeout = setTimeout(() => void this.initScraper(), 10000);
-            }
+            // Go through scheduleNextPoll so any pending timer is replaced
+            // rather than left running alongside this one.
+            this.scheduleNextPoll(10000);
         }
     }
 
     private async pollScraper() {
         if (!this.continuationToken || !this.webApiKey) {
+            // Token/key expired mid-stream: re-init (bounded), else degrade to mock.
+            this.scraperReinitAttempts += 1;
+            if (this.scraperReinitAttempts > 3) {
+                console.error("[YouTubeChat] Scraper token lost repeatedly — activating Mock Chat Fallback.");
+                this.continuationToken = null;
+                this.webApiKey = null;
+                if (this.enableMockFallback) this.startAutonomousMockChat();
+                this.scheduleNextPoll(this.pollIntervalMs);
+                return;
+            }
+            console.warn("[YouTubeChat] Scraper token missing — re-initializing scraper...");
             await this.initScraper();
             return;
         }
+        this.scraperReinitAttempts = 0;
 
         const url = `https://www.youtube.com/youtubei/v1/live_chat/get_live_chat?key=${this.webApiKey}`;
         const res = await fetch(url, {

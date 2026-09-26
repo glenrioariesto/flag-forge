@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { FlagData } from "@/types/game";
 import { getLocalFallbackReply } from "@/lib/aiFallback";
+import { flagUrl } from "@/lib/flagUrl";
 
 interface ChatMessage {
   role: "user" | "assistant" | "system";
@@ -20,11 +21,7 @@ function initialMessages(flag: FlagData | null): ChatMessage[] {
   return [
     {
       role: "system",
-      content: `You are the anthropomorphized flag of ${flag.country}. You are currently in a battle royale game. You have a ${flag.weapon} weapon. Be competitive but funny. Keep responses short (under 50 words).
-
-IMPORTANT: Your primary task is to convert audience chat into code. If the user mentions a country or flag change, output the TypeScript code to update the flag image source, following this pattern:
-\`setImageSrc("https://flagcdn.com/160x120/xx.png");\`
-where 'xx' is the 2-letter ISO code of the requested country (lowercase).`,
+      content: `You are the anthropomorphized flag of ${flag.country}. You are currently in a battle royale game. You have a ${flag.weapon} weapon. Be competitive but funny. Keep responses short (under 50 words).`,
     },
     {
       role: "assistant",
@@ -72,9 +69,6 @@ export function ChatWindow({ flag, onClose }: ChatWindowProps) {
     ); // Keep initial system prompt
 
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20_000);
-
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -85,15 +79,14 @@ export function ChatWindow({ flag, onClose }: ChatWindowProps) {
           userMessage: userText,
           model: "meta-llama/llama-3.3-70b-instruct:free",
         }),
-        signal: controller.signal,
+        signal: AbortSignal.timeout(20_000),
       });
-      clearTimeout(timeoutId);
 
       const data = await res.json();
       if (data.choices && data.choices[0]?.message) {
         setMessages((prev) => [...prev, data.choices[0].message]);
         // Server marks local replies with isFallback:true
-        if (data.isFallback || data.fallbackReason) setIsOfflineMode(true);
+        setIsOfflineMode(Boolean(data.isFallback || data.fallbackReason));
       } else {
         pushFallback(
           userText,
@@ -121,7 +114,7 @@ export function ChatWindow({ flag, onClose }: ChatWindowProps) {
       <div className="bg-white/10 p-3 flex justify-between items-center border-b border-white/10">
         <div className="flex items-center gap-2">
           <Image
-            src={`https://flagcdn.com/24x18/${flag.country.toLowerCase()}.png`}
+            src={flagUrl(flag.country, 24, 18)}
             alt={flag.country}
             width={24}
             height={16}

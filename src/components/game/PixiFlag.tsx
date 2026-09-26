@@ -1,6 +1,7 @@
 import * as PIXI from "pixi.js";
 import { useEffect, useState, useMemo, useRef } from "react";
 import { FlagData } from "@/types/game";
+import { flagUrl } from "@/lib/flagUrl";
 
 interface PixiFlagProps {
     flag: FlagData;
@@ -8,6 +9,27 @@ interface PixiFlagProps {
     screenHeight: number;
     onSelect?: (flag: FlagData) => void;
 }
+
+// Shared styles: TextStyle construction forces a Pixi text re-layout,
+// so these must be module-level singletons, not per-render allocations
+// (state ticks at 10Hz × ~20 flags otherwise).
+const FALLBACK_TEXT_STYLE = new PIXI.TextStyle({
+    fontSize: 12,
+    fontWeight: "bold",
+    fill: "#ffffff",
+});
+
+const LABEL_STYLE_BOT = new PIXI.TextStyle({
+    fontSize: 9,
+    fill: "#cbd5e1",
+    fontWeight: "bold",
+});
+
+const LABEL_STYLE_PLAYER = new PIXI.TextStyle({
+    fontSize: 9,
+    fill: "#fef08a",
+    fontWeight: "bold",
+});
 
 // Cache of resolved textures so remounts never re-request 404s/known URLs.
 const textureCache = new Map<string, PIXI.Texture>();
@@ -37,7 +59,7 @@ async function resolveFlagTexture(country: string): Promise<{ texture: PIXI.Text
     // 2. Try CDN
     if (country.length === 2) {
         try {
-            return cacheIt(await PIXI.Assets.load(`https://flagcdn.com/160x120/${normalized}.png`));
+            return cacheIt(await PIXI.Assets.load(flagUrl(country, 160, 120)));
         } catch {
             // fall through to text fallback
         }
@@ -152,11 +174,7 @@ const PixiFlagInner = ({ flag, screenWidth, screenHeight, onSelect }: PixiFlagPr
                     <pixiText 
                         text={flag.country.substring(0, 3)} 
                         anchor={0.5} 
-                        style={new PIXI.TextStyle({
-                            fontSize: 12,
-                            fontWeight: 'bold',
-                            fill: '#ffffff',
-                        })}
+                        style={FALLBACK_TEXT_STYLE}
                     />
                 </pixiContainer>
             )}
@@ -169,11 +187,7 @@ const PixiFlagInner = ({ flag, screenWidth, screenHeight, onSelect }: PixiFlagPr
                     anchor={0.5}
                     x={0}
                     y={11}
-                    style={new PIXI.TextStyle({
-                        fontSize: 9,
-                        fill: flag.isBot ? '#cbd5e1' : '#fef08a',
-                        fontWeight: 'bold'
-                    })}
+                    style={flag.isBot ? LABEL_STYLE_BOT : LABEL_STYLE_PLAYER}
                  />
             </pixiContainer>
         </pixiContainer>

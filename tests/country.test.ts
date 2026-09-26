@@ -18,10 +18,11 @@ describe("extractCountryCode", () => {
         assert.equal(extractCountryCode("BRAZIL"), "BR");
     });
 
-    it("rejects empty / non-letter / overlong input", () => {
+    it("rejects empty / non-letter / overlong / unknown-code input", () => {
         assert.equal(extractCountryCode(""), null);
         assert.equal(extractCountryCode("!!!"), null);
         assert.equal(extractCountryCode("A"), null);
         assert.equal(extractCountryCode("HELLO"), null);
+        assert.equal(extractCountryCode("ZZ"), null);
     });
 });

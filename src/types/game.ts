@@ -1,4 +1,15 @@
-export type WeaponType = "cannon" | "laser" | "rocket";
+// Single source of truth for weapons. The engine rotates this array at runtime
+// and the overlay renders from the type derived off it, so a weapon added here
+// cannot drift out of sync on one side.
+export const WEAPON_TYPES = ["cannon", "laser", "rocket"] as const;
+
+export type WeaponType = (typeof WEAPON_TYPES)[number];
+
+// Assumed country/weapon when the real one is unknown. Both the chat-context
+// extractor and the local reply builder need this fallback, so it is declared
+// once here instead of being re-typed as a literal at each site.
+export const DEFAULT_COUNTRY = "ID";
+export const DEFAULT_WEAPON: WeaponType = "cannon";
 
 export interface FlagData {
     id: string;

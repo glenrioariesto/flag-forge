@@ -11,7 +11,7 @@ Realtime 24/7 YouTube Live Interactive Country Flag Battle with Procedural Lo-Fi
   - *Tier 1*: YouTube Official Data API v3.
   - *Tier 2*: Zero-Quota Innertube Web Scraper (auto-switch on API quota errors).
   - *Tier 3*: Emergency Mock Chat Simulator (no credentials / repeated failures).
-  - Note: mock chat emits are tagged `isFallbackMock` but currently treated the same as real chat downstream.
+  - Note: mock chat emits are tagged `isFallbackMock`; the game engine spawns them but keeps them out of the `lastUserChatTime` activity window, so simulator traffic never suppresses real viewers or pollutes player stats.
 - **Lo-Fi Procedural Audio Engine (76 BPM)** (`src/lib/audio/index.ts`):
   - Lo-Fi Jazz chord loop (Dm9 → G13 → Cmaj9 → Am7) with warm filter/reverb/chorus.
   - Country-based pentatonic spawn/hit SFX for 8 mapped countries (`ID/US/JP/KR/BR/FR/DE/GB`), generic fallback otherwise. SFX trigger immediately (not beat-quantized).

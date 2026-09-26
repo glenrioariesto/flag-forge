@@ -1,3 +1,5 @@
+import { DEFAULT_COUNTRY, DEFAULT_WEAPON } from "@/types/game";
+
 /**
  * Local fallback replies for flag chat when AI API is unavailable.
  * Usable from both server (route.ts) and client (ChatWindow.tsx).
@@ -24,8 +26,8 @@ export function getLocalFallbackReply(
     weapon: string,
     userMessage: string,
 ): string {
-    const c = (country || "ID").toUpperCase();
-    const w = weapon || "cannon";
+    const c = (country || DEFAULT_COUNTRY).toUpperCase();
+    const w = weapon || DEFAULT_WEAPON;
     const pick = TEMPLATES[Math.floor(Math.random() * TEMPLATES.length)];
     return pick(c, w, userMessage);
 }
