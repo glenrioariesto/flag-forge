@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { FlagData } from "@/types/game";
+import { getLocalFallbackReply } from "@/lib/aiFallback";
 
 interface ChatMessage {
   role: "user" | "assistant" | "system";
@@ -17,10 +18,12 @@ export function ChatWindow({ flag, onClose }: ChatWindowProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (flag) {
+      setIsOfflineMode(false);
       setMessages([
         {
           role: "system",
@@ -44,32 +47,65 @@ where 'xx' is the 2-letter ISO code of the requested country (lowercase).`
     }
   }, [messages]);
 
+  const pushFallback = (userText: string, text: string, reason?: string) => {
+    if (!flag) return;
+    const reply =
+      text || getLocalFallbackReply(flag.country, flag.weapon, userText);
+    setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+    setIsOfflineMode(true);
+    if (reason) console.warn("[AI] Using local fallback:", reason);
+  };
+
   const handleSend = async () => {
     if (!input.trim() || loading || !flag) return;
 
-    const userMsg: ChatMessage = { role: "user", content: input };
-    setMessages(prev => [...prev, userMsg]);
+    const userText = input.trim();
+    const userMsg: ChatMessage = { role: "user", content: userText };
+    setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setLoading(true);
 
+    const payloadMessages = [...messages, userMsg].filter(
+      (m) => m.role !== "system" || m === messages[0],
+    ); // Keep initial system prompt
+
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20_000);
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [...messages, userMsg].filter(m => m.role !== "system" || m === messages[0]), // Keep initial system prompt
-          model: "meta-llama/llama-3.3-70b-instruct:free" 
-        })
+          messages: payloadMessages,
+          country: flag.country,
+          weapon: flag.weapon,
+          userMessage: userText,
+          model: "meta-llama/llama-3.3-70b-instruct:free",
+        }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       const data = await res.json();
       if (data.choices && data.choices[0]?.message) {
-        setMessages(prev => [...prev, data.choices[0].message]);
+        setMessages((prev) => [...prev, data.choices[0].message]);
+        // Server marks local replies with isFallback:true
+        if (data.isFallback || data.fallbackReason) setIsOfflineMode(true);
       } else {
-        console.error("No response from AI", data);
+        pushFallback(
+          userText,
+          typeof data?.fallback === "string" ? data.fallback : "",
+          data?.error || "empty AI response",
+        );
       }
     } catch (error) {
-      console.error("Error sending message:", error);
+      console.error("Error sending message, using local fallback:", error);
+      pushFallback(
+        userText,
+        "",
+        error instanceof Error ? error.message : String(error),
+      );
     } finally {
       setLoading(false);
     }
@@ -89,6 +125,14 @@ where 'xx' is the 2-letter ISO code of the requested country (lowercase).`
             onError={(e) => e.currentTarget.style.display = 'none'}
           />
           <span className="font-bold text-sm">{flag.country.toUpperCase()}</span>
+          {isOfflineMode && (
+            <span
+              className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 font-mono"
+              title="AI API tidak tersedia — memakai jawaban lokal"
+            >
+              offline mode
+            </span>
+          )}
         </div>
         <button 
           onClick={onClose}
