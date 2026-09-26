@@ -92,4 +92,10 @@ app.prepare().then(() => {
     };
     process.on("SIGINT", () => shutdown("SIGINT"));
     process.on("SIGTERM", () => shutdown("SIGTERM"));
+}).catch((err) => {
+    // The outermost promise chain is the one that actually binds the ports, so
+    // a prepare failure must report like the EADDRINUSE handlers above instead
+    // of surfacing as an unhandled rejection.
+    console.error("[Server] Failed to prepare Next.js:", err);
+    process.exit(1);
 });

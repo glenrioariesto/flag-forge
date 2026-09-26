@@ -288,6 +288,11 @@ export class FlagRoom extends Room {
         for (const bullet of this.bullets) {
             for (const flag of this.flags) {
                 if (bullet.ownerId === flag.id) continue;
+                // this.flags is only pruned after this scan, so a flag already
+                // recorded as hit is still reachable by the next overlapping
+                // bullet. Without this guard one kill scored N points and
+                // fired N hit sounds in the same tick.
+                if (hitFlagIds.has(flag.id)) continue;
                 const dx = bullet.x - flag.x;
                 const dy = bullet.y - flag.y;
                 if (dx * dx + dy * dy < 8) {

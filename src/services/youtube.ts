@@ -1,4 +1,5 @@
 import { EventEmitter } from "events";
+import { SeenIdSet } from "../lib/seenIds";
 
 export type StartOptions = {
     apiKey?: string;
@@ -59,6 +60,10 @@ const FALLBACK_NAMES = [
 
 const FALLBACK_COUNTRIES = ["ID", "US", "JP", "BR", "KR", "FR", "DE", "GB", "CA", "AU", "SG", "MY"];
 
+// How many message ids to remember for dedupe. One page is capped at 100
+// results, so this comfortably outlives a repeated read of the same page.
+const SEEN_MESSAGE_IDS = 500;
+
 export class YouTubeChatService extends EventEmitter {
     private isListening = false;
     private pollTimeout: NodeJS.Timeout | null = null;
@@ -75,6 +80,7 @@ export class YouTubeChatService extends EventEmitter {
     private enableMockFallback = true;
     private lastMessageReceivedTime = Date.now();
     private scraperReinitAttempts = 0;
+    private seenMessageIds = new SeenIdSet(SEEN_MESSAGE_IDS);
 
     public async startListening(options: StartOptions) {
         if (this.isListening) return;
@@ -160,6 +166,7 @@ export class YouTubeChatService extends EventEmitter {
         this.webApiKey = null;
         this.isScraperMode = false;
         this.consecutiveErrors = 0;
+        this.seenMessageIds.clear();
     }
 
     private async pollLoop() {
@@ -171,6 +178,12 @@ export class YouTubeChatService extends EventEmitter {
             } else {
                 const messages = await this.fetchMessages();
                 for (const message of messages) {
+                    // messageId was already being parsed and stored but never
+                    // read, so a re-read page replayed every message and the
+                    // engine spawned duplicate flags on each poll.
+                    if (message.messageId && !this.seenMessageIds.add(message.messageId)) {
+                        continue;
+                    }
                     this.lastMessageReceivedTime = Date.now();
                     this.emit("chat_message", message);
                 }
