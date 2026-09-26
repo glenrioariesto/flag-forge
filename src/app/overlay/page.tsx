@@ -33,13 +33,17 @@ export default function OverlayPage() {
     const roomRef = useRef<Colyseus.Room | null>(null);
 
     useEffect(() => {
-        setMounted(true);
-        setDimensions({ width: window.innerWidth, height: window.innerHeight });
-
         const handleResize = () => {
             setDimensions({ width: window.innerWidth, height: window.innerHeight });
         };
         window.addEventListener("resize", handleResize);
+
+        // Defer the first sync into a callback: synchronous setState in an
+        // effect body triggers cascading renders (react-hooks/set-state-in-effect).
+        const raf = requestAnimationFrame(() => {
+            setMounted(true);
+            handleResize();
+        });
 
         // Auto start audio on user click anywhere
         const handleInteraction = async () => {
@@ -90,6 +94,7 @@ export default function OverlayPage() {
         connectToGame();
 
         return () => {
+            cancelAnimationFrame(raf);
             window.removeEventListener("resize", handleResize);
             window.removeEventListener("pointerdown", handleInteraction);
             roomRef.current?.leave();
@@ -158,9 +163,10 @@ export default function OverlayPage() {
 
             {/* Chat Window Details */}
             {selectedFlag && (
-                <ChatWindow 
-                    flag={selectedFlag} 
-                    onClose={() => setSelectedFlag(null)} 
+                <ChatWindow
+                    key={selectedFlag.id}
+                    flag={selectedFlag}
+                    onClose={() => setSelectedFlag(null)}
                 />
             )}
 

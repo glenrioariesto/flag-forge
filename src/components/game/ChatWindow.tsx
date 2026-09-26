@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import Image from "next/image";
 import { FlagData } from "@/types/game";
 import { getLocalFallbackReply } from "@/lib/aiFallback";
 
@@ -14,32 +15,33 @@ interface ChatWindowProps {
   onClose: () => void;
 }
 
+function initialMessages(flag: FlagData | null): ChatMessage[] {
+  if (!flag) return [];
+  return [
+    {
+      role: "system",
+      content: `You are the anthropomorphized flag of ${flag.country}. You are currently in a battle royale game. You have a ${flag.weapon} weapon. Be competitive but funny. Keep responses short (under 50 words).
+
+IMPORTANT: Your primary task is to convert audience chat into code. If the user mentions a country or flag change, output the TypeScript code to update the flag image source, following this pattern:
+\`setImageSrc("https://flagcdn.com/160x120/xx.png");\`
+where 'xx' is the 2-letter ISO code of the requested country (lowercase).`,
+    },
+    {
+      role: "assistant",
+      content: `Hello! I am ${flag.country}. Ready to win this! 🚩`,
+    },
+  ];
+}
+
 export function ChatWindow({ flag, onClose }: ChatWindowProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Fresh state per flag via key={flag.id} on the parent — no reset effect needed.
+  const [messages, setMessages] = useState<ChatMessage[]>(() =>
+    initialMessages(flag),
+  );
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (flag) {
-      setIsOfflineMode(false);
-      setMessages([
-        {
-          role: "system",
-          content: `You are the anthropomorphized flag of ${flag.country}. You are currently in a battle royale game. You have a ${flag.weapon} weapon. Be competitive but funny. Keep responses short (under 50 words).
-
-IMPORTANT: Your primary task is to convert audience chat into code. If the user mentions a country or flag change, output the TypeScript code to update the flag image source, following this pattern:
-\`setImageSrc("https://flagcdn.com/160x120/xx.png");\`
-where 'xx' is the 2-letter ISO code of the requested country (lowercase).`
-        },
-        {
-          role: "assistant",
-          content: `Hello! I am ${flag.country}. Ready to win this! 🚩`
-        }
-      ]);
-    }
-  }, [flag]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -118,11 +120,14 @@ where 'xx' is the 2-letter ISO code of the requested country (lowercase).`
       {/* Header */}
       <div className="bg-white/10 p-3 flex justify-between items-center border-b border-white/10">
         <div className="flex items-center gap-2">
-          <img 
-            src={`https://flagcdn.com/24x18/${flag.country.toLowerCase()}.png`} 
+          <Image
+            src={`https://flagcdn.com/24x18/${flag.country.toLowerCase()}.png`}
             alt={flag.country}
+            width={24}
+            height={16}
+            unoptimized
             className="w-6 h-4 object-cover rounded-sm"
-            onError={(e) => e.currentTarget.style.display = 'none'}
+            onError={(e) => (e.currentTarget.style.display = "none")}
           />
           <span className="font-bold text-sm">{flag.country.toUpperCase()}</span>
           {isOfflineMode && (

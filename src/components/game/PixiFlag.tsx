@@ -1,5 +1,5 @@
 import * as PIXI from "pixi.js";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { FlagData } from "@/types/game";
 
 interface PixiFlagProps {
@@ -9,11 +9,63 @@ interface PixiFlagProps {
     onSelect?: (flag: FlagData) => void;
 }
 
+// Cache of resolved textures so remounts never re-request 404s/known URLs.
+const textureCache = new Map<string, PIXI.Texture>();
+// Countries whose local file 404'd — skip straight to CDN next time.
+const localMissingCache = new Set<string>();
+
+async function resolveFlagTexture(country: string): Promise<{ texture: PIXI.Texture | null }> {
+    const normalized = country.toLowerCase();
+    const cacheKey = `flag:${normalized}`;
+    const cached = textureCache.get(cacheKey);
+    if (cached) return { texture: cached };
+
+    const cacheIt = (tex: PIXI.Texture) => {
+        textureCache.set(cacheKey, tex);
+        return { texture: tex };
+    };
+
+    // 1. Try Local (skip if previously 404 — public/flags/ is empty by default)
+    if (!localMissingCache.has(normalized)) {
+        try {
+            return cacheIt(await PIXI.Assets.load(`/flags/${normalized}.png`));
+        } catch {
+            localMissingCache.add(normalized);
+        }
+    }
+
+    // 2. Try CDN
+    if (country.length === 2) {
+        try {
+            return cacheIt(await PIXI.Assets.load(`https://flagcdn.com/160x120/${normalized}.png`));
+        } catch {
+            // fall through to text fallback
+        }
+    }
+
+    return { texture: null };
+}
+
 export const PixiFlag = ({ flag, screenWidth, screenHeight, onSelect }: PixiFlagProps) => {
-    const [texture, setTexture] = useState<PIXI.Texture | null>(null);
+    // Remount per country: fresh texture/error state via lazy useState in the
+    // inner component, so the loading effect never needs a synchronous reset.
+    return (
+        <PixiFlagInner
+            key={flag.country}
+            flag={flag}
+            screenWidth={screenWidth}
+            screenHeight={screenHeight}
+            onSelect={onSelect}
+        />
+    );
+};
+
+const PixiFlagInner = ({ flag, screenWidth, screenHeight, onSelect }: PixiFlagProps) => {
+    const [texture, setTexture] = useState<PIXI.Texture | null>(() =>
+        textureCache.get(`flag:${flag.country.toLowerCase()}`) ?? null
+    );
     const [error, setError] = useState(false);
-    // Empty string = not yet tried; avoids re-requesting a known-missing local asset every render.
-    const [localMissing, setLocalMissing] = useState(false);
+    const requestRef = useRef(0);
 
     // Calculate position in pixels
     const x = (flag.x / 100) * screenWidth;
@@ -22,54 +74,23 @@ export const PixiFlag = ({ flag, screenWidth, screenHeight, onSelect }: PixiFlag
     const radius = 24; 
 
     useEffect(() => {
-        let isMounted = true;
-        setError(false);
-        setTexture(null);
+        const requestId = ++requestRef.current;
+        let cancelled = false;
 
-        const loadTexture = async () => {
-            const normalizedCountry = flag.country.toLowerCase();
-
-            // 1. Try Local (skip on retry if already 404 — public/flags/ is empty by default)
-            if (!localMissing) {
-                const localPath = `/flags/${normalizedCountry}.png`;
-                try {
-                    const tex = await PIXI.Assets.load(localPath);
-                    if (isMounted) {
-                        setTexture(tex);
-                        return;
-                    }
-                } catch {
-                    // Remember 404 so remounts with the same bundle skip straight to CDN
-                    if (isMounted) setLocalMissing(true);
-                }
-            }
-
-            // 2. Try CDN
-            if (flag.country.length === 2) {
-                try {
-                    const cdnUrl = `https://flagcdn.com/160x120/${normalizedCountry}.png`;
-                    const tex = await PIXI.Assets.load(cdnUrl);
-                    if (isMounted) {
-                        setTexture(tex);
-                        return;
-                    }
-                } catch {
-                    // Ignore CDN error
-                }
-            }
-
-            // 3. Fallback
-            if (isMounted) {
+        // Subscription-style: setState only inside the async callback.
+        void resolveFlagTexture(flag.country).then(({ texture: tex }) => {
+            if (cancelled || requestRef.current !== requestId) return;
+            if (tex) {
+                setTexture(tex);
+            } else {
                 setError(true);
             }
-        };
-
-        loadTexture();
+        });
 
         return () => {
-            isMounted = false;
+            cancelled = true;
         };
-    }, [flag.country, localMissing]);
+    }, [flag.country]);
 
     const weaponIcon = useMemo(() => {
         switch (flag.weapon) {
