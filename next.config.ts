@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  transpilePackages: ["pixi.js", "@pixi/react", "tone", "colyseus.js"],
 };
 
 export default nextConfig;

@@ -12,12 +12,13 @@ interface PixiFlagProps {
 export const PixiFlag = ({ flag, screenWidth, screenHeight, onSelect }: PixiFlagProps) => {
     const [texture, setTexture] = useState<PIXI.Texture | null>(null);
     const [error, setError] = useState(false);
+    // Empty string = not yet tried; avoids re-requesting a known-missing local asset every render.
+    const [localMissing, setLocalMissing] = useState(false);
 
     // Calculate position in pixels
     const x = (flag.x / 100) * screenWidth;
     const y = (flag.y / 100) * screenHeight;
 
-    // Radius for the flag circle
     const radius = 24; 
 
     useEffect(() => {
@@ -27,17 +28,20 @@ export const PixiFlag = ({ flag, screenWidth, screenHeight, onSelect }: PixiFlag
 
         const loadTexture = async () => {
             const normalizedCountry = flag.country.toLowerCase();
-            
-            // 1. Try Local
-            const localPath = `/flags/${normalizedCountry}.png`;
-            try {
-                const tex = await PIXI.Assets.load(localPath);
-                if (isMounted) {
-                    setTexture(tex);
-                    return;
+
+            // 1. Try Local (skip on retry if already 404 — public/flags/ is empty by default)
+            if (!localMissing) {
+                const localPath = `/flags/${normalizedCountry}.png`;
+                try {
+                    const tex = await PIXI.Assets.load(localPath);
+                    if (isMounted) {
+                        setTexture(tex);
+                        return;
+                    }
+                } catch {
+                    // Remember 404 so remounts with the same bundle skip straight to CDN
+                    if (isMounted) setLocalMissing(true);
                 }
-            } catch {
-                // Ignore local load error
             }
 
             // 2. Try CDN
@@ -65,13 +69,13 @@ export const PixiFlag = ({ flag, screenWidth, screenHeight, onSelect }: PixiFlag
         return () => {
             isMounted = false;
         };
-    }, [flag.country]);
+    }, [flag.country, localMissing]);
 
     const weaponIcon = useMemo(() => {
         switch (flag.weapon) {
-            case "laser": return "🔫";
+            case "laser": return "⚡";
             case "rocket": return "🚀";
-            default: return "💣";
+            default: return "💥";
         }
     }, [flag.weapon]);
 
@@ -80,20 +84,28 @@ export const PixiFlag = ({ flag, screenWidth, screenHeight, onSelect }: PixiFlag
         return (g: PIXI.Graphics) => {
             g.clear();
             g.circle(0, 0, radius);
-            g.fill({ color: 0x333333, alpha: 0.8 });
-            g.stroke({ width: 2, color: 0xffffff });
+            g.fill({ color: flag.isBot ? 0x242730 : 0x3b82f6, alpha: 0.85 });
+            g.stroke({ width: 2, color: flag.isBot ? 0x64748b : 0x60a5fa });
         };
-    }, []);
+    }, [flag.isBot]);
 
     // Label background
     const drawLabelBg = useMemo(() => {
         return (g: PIXI.Graphics) => {
             g.clear();
-            g.roundRect(-30, 0, 60, 20, 10);
-            g.fill({ color: 0x000000, alpha: 0.6 });
-            g.stroke({ width: 1, color: 0xffffff, alpha: 0.3 });
+            g.roundRect(-36, 0, 72, 22, 6);
+            g.fill({ color: flag.isBot ? 0x0f172a : 0x1e1b4b, alpha: 0.85 });
+            g.stroke({ width: 1, color: flag.isBot ? 0x334155 : 0xa855f7, alpha: 0.7 });
         };
-    }, []);
+    }, [flag.isBot]);
+
+    const displayName = useMemo(() => {
+        if (!flag.isBot && flag.author) {
+            const shortAuthor = flag.author.length > 8 ? `${flag.author.slice(0, 7)}…` : flag.author;
+            return `${flag.country} | ${shortAuthor}`;
+        }
+        return `${flag.country} ${weaponIcon}`;
+    }, [flag.country, flag.author, flag.isBot, weaponIcon]);
 
     return (
         <pixiContainer 
@@ -106,15 +118,11 @@ export const PixiFlag = ({ flag, screenWidth, screenHeight, onSelect }: PixiFlag
             {/* Flag Image or Fallback */}
             {!error && texture ? (
                 <pixiContainer>
-                    {/* Masked Sprite workaround: render graphics then sprite? 
-                        In intrinsic elements, 'mask' prop might not work easily with refs.
-                        Simple rect sprite for now.
-                    */}
                     <pixiSprite 
                         texture={texture} 
                         anchor={0.5} 
-                        width={48} 
-                        height={36} 
+                        width={46} 
+                        height={34} 
                     />
                 </pixiContainer>
             ) : (
@@ -133,16 +141,16 @@ export const PixiFlag = ({ flag, screenWidth, screenHeight, onSelect }: PixiFlag
             )}
 
             {/* Name Label & Weapon */}
-            <pixiContainer y={24}>
+            <pixiContainer y={22}>
                  <pixiGraphics draw={drawLabelBg} />
                  <pixiText 
-                    text={`${flag.country} ${weaponIcon}`}
+                    text={displayName}
                     anchor={0.5}
                     x={0}
-                    y={10}
+                    y={11}
                     style={new PIXI.TextStyle({
-                        fontSize: 10,
-                        fill: '#ffffff',
+                        fontSize: 9,
+                        fill: flag.isBot ? '#cbd5e1' : '#fef08a',
                         fontWeight: 'bold'
                     })}
                  />

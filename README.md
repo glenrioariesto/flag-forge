@@ -1,85 +1,81 @@
 # Flag Forge
 
-Realtime YouTube Live chat → game overlay. Chat messages spawn moving flags with weapons, bullets, and a leaderboard. The overlay is built with Next.js + Colyseus and is ready to be used as an OBS browser source.
+Realtime 24/7 YouTube Live Interactive Country Flag Battle with Procedural Lo-Fi Music & AI Simulation Mode. Built with **Next.js (App Router)**, **Colyseus WebSocket Server**, **PixiJS Canvas**, and **Tone.js**.
 
-## Fitur Utama
+---
 
-- Realtime spawn dari YouTube Live Chat
-- Bendera bergerak, menembak, dan collision sederhana
-- Leaderboard per negara
-- Overlay responsif untuk OBS
-- Batas jumlah bendera aktif + antrean untuk menjaga performa
-- **Custom Flag Support**: Mendukung gambar bendera custom atau otomatis dari CDN.
+## Features
 
-## Teknologi
+- **Autonomous AI Simulation (Anti-Dead Air)**: bot flags spawn automatically when chat is quiet so the screen stays alive.
+- **4-Tier Live Chat Ingestion** (`src/services/youtube.ts`):
+  - *Tier 1*: YouTube Official Data API v3.
+  - *Tier 2*: Zero-Quota Innertube Web Scraper (auto-switch on API quota errors).
+  - *Tier 3*: Emergency Mock Chat Simulator (no credentials / repeated failures).
+  - Note: mock chat emits are tagged `isFallbackMock` but currently treated the same as real chat downstream.
+- **Lo-Fi Procedural Audio Engine (76 BPM)** (`src/lib/audio/index.ts`):
+  - Lo-Fi Jazz chord loop (Dm9 → G13 → Cmaj9 → Am7) with warm filter/reverb/chorus.
+  - Country-based pentatonic spawn/hit SFX for 8 mapped countries (`ID/US/JP/KR/BR/FR/DE/GB`), generic fallback otherwise. SFX trigger immediately (not beat-quantized).
+- **10-Minute Rounds & Leaderboard**: scores reset every 10 minutes with a winner banner celebration.
+- **OBS Ready Overlay**: glassmorphism cyber-lofi 1080p transparent design at `/overlay`.
+- **AI Flag Chat (optional)**: click a flag to chat with it via OpenRouter (`meta-llama/llama-3.3-70b-instruct:free`). Works without a key — local fallback replies + `offline mode` badge.
 
-- Next.js (app router)
-- Colyseus (server WebSocket)
-- Tone.js (audio)
+---
 
-## Menjalankan Lokal
+## Running with pnpm
 
-```bash
-npm install
-npm run dev
-```
+1. **Install dependencies**:
+   ```bash
+   pnpm install
+   ```
 
-Open http://localhost:3000 (akan redirect ke /overlay).
+2. **Run local server**:
+   ```bash
+   pnpm dev
+   ```
+   Useful scripts: `pnpm test` (unit tests), `pnpm run typecheck`, `pnpm run lint`, `pnpm run build`.
 
-## Konfigurasi Environment
+3. Open in browser or OBS Browser Source:
+   - Overlay: `http://localhost:3000/overlay`
+   - Health: `http://localhost:3000/api/health`
+   - WebSocket Engine: `ws://localhost:3001`
 
-Buat file `.env` lalu isi salah satu opsi berikut:
+---
 
-Minimal (pakai videoId):
+## Environment Configuration (`.env`)
 
-```
-YOUTUBE_API_KEY=YOUR_KEY
-YOUTUBE_VIDEO_ID=LIVE_VIDEO_ID
-```
+Copy `.env.example` to `.env` and fill in. Only one YouTube option is needed:
 
-Atau langsung liveChatId:
-
-```
-YOUTUBE_API_KEY=YOUR_KEY
-YOUTUBE_LIVE_CHAT_ID=LIVE_CHAT_ID
-```
-
-Opsional:
-
-```
-YOUTUBE_POLL_INTERVAL_MS=5000
+### Option A: Zero-Quota mode (recommended for 24/7)
+Only your live stream video ID is needed:
+```env
+YOUTUBE_VIDEO_ID=YOUR_YOUTUBE_VIDEO_ID
 PORT=3000
 ```
 
-## Cara Pakai
+### Option B: Official API Key mode
+```env
+YOUTUBE_API_KEY=YOUR_GCP_API_KEY
+YOUTUBE_VIDEO_ID=YOUR_YOUTUBE_VIDEO_ID
+PORT=3000
+```
 
-1. Pastikan live stream sudah berjalan.
-2. Set `.env` sesuai konfigurasi di atas.
-3. Jalankan `npm run dev`.
-4. Buka `/overlay` di browser atau OBS Browser Source.
-5. Chat masuk akan dimasukkan antrean dan spawn bertahap.
+### Optional
+```env
+YOUTUBE_LIVE_CHAT_ID=LIVE_CHAT_ID
+YOUTUBE_POLL_INTERVAL_MS=5000
+OPENROUTER_API_KEY=YOUR_KEY  # optional: AI flag chat falls back to local replies without it
+NEXT_PUBLIC_COLYSEUS_URL=ws://localhost:3001  # overlay WebSocket URL for production
+HOST=localhost
+COLYSEUS_PORT=3001
+PORT=3000
+```
 
-## Custom Flag Images
+---
 
-Secara default, aplikasi akan mencoba memuat gambar bendera dari CDN (`flagcdn.com`) jika input adalah kode negara 2 huruf (contoh: ID, US, JP).
+## Setup in OBS Studio
 
-Jika Anda memiliki gambar bendera sendiri (misal untuk komunitas tertentu atau nama negara lengkap):
-1. Buat folder `flags` di dalam folder `public` (`public/flags/`).
-2. Simpan file gambar **.png** di folder tersebut.
-3. Beri nama file sesuai dengan teks yang dikirim di chat (huruf kecil).
-   - Contoh: Jika user mengetik "Indo", simpan sebagai `public/flags/indo.png`.
-   - Contoh: Jika user mengetik "MyCommunity", simpan sebagai `public/flags/mycommunity.png`.
-4. Aplikasi akan memprioritaskan file lokal ini. Jika tidak ditemukan, akan mencoba CDN (jika 2 huruf) atau menampilkan teks.
-
-## Pengaturan Performa (Server)
-
-Konfigurasi ini ada di `src/game/FlagRoom.ts`:
-
-- `maxActiveFlags` membatasi jumlah bendera aktif
-- `maxQueueSize` membatasi antrean chat
-- `spawnRatePerSecond` membatasi kecepatan spawn
-
-## Catatan
-
-- YouTube Data API v3 wajib diaktifkan di project GCP.
-- Chat hanya tersedia saat live stream aktif.
+1. In OBS Studio, click **Add Source (+)** → **Browser Source**.
+2. Enter URL: `http://localhost:3000/overlay`
+3. Set Width: `1920`, Height: `1080`.
+4. Check **"Control audio via OBS"** (audio starts after first click; browsers block autoplay otherwise).
+5. Place animated background / lo-fi video on the bottom layer in OBS.
