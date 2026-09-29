@@ -18,10 +18,13 @@ Realtime 24/7 YouTube Live Interactive Country Flag Battle with Procedural Lo-Fi
 - **10-Minute Rounds & Leaderboard**: scores reset every 10 minutes with a winner banner celebration.
 - **OBS Ready Overlay**: glassmorphism cyber-lofi 1080p transparent design at `/overlay`.
 - **AI Flag Chat (optional)**: click a flag to chat with it via OpenRouter (`meta-llama/llama-3.3-70b-instruct:free`). Works without a key — local fallback replies + `offline mode` badge.
+- **Rate-Limited Public AI Route** (`src/lib/rateLimit.ts`): `POST /api/chat` is unauthenticated, so it is capped per client via an optional Upstash sliding window. Unset credentials fail open with a warning; over-limit callers get `429` + `Retry-After`.
 
 ---
 
 ## Running with pnpm
+
+This project uses **pnpm only** (pinned via `packageManager` in `package.json`). Do not use `npm install` or `yarn`.
 
 1. **Install dependencies**:
    ```bash
@@ -64,6 +67,12 @@ PORT=3000
 YOUTUBE_LIVE_CHAT_ID=LIVE_CHAT_ID
 YOUTUBE_POLL_INTERVAL_MS=5000
 OPENROUTER_API_KEY=YOUR_KEY  # optional: AI flag chat falls back to local replies without it
+
+# Optional: rate limit POST /api/chat (unlimited + a warning log if unset)
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
+CHAT_RATE_LIMIT_MAX=10
+CHAT_RATE_LIMIT_WINDOW=1 m
 NEXT_PUBLIC_COLYSEUS_URL=ws://localhost:3001  # overlay WebSocket URL for production
 HOST=localhost
 COLYSEUS_PORT=3001

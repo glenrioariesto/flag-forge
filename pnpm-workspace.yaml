@@ -1,14 +1,19 @@
+# pnpm-only project: package manager is pinned via "packageManager" in
+# package.json and this file is the single place pnpm settings live.
+# pnpm >= 10 reads settings from here, not from .npmrc, so anything placed in
+# .npmrc is silently ignored by pnpm and merely warned about by npm.
 packages:
   - '.'
 
+# Which dependencies may run install scripts (esbuild/sharp/unrs-resolver all
+# need this to produce working binaries). This supersedes the older
+# onlyBuiltDependencies spelling, which was duplicated in .npmrc as well.
 allowBuilds:
   esbuild: true
   msgpackr-extract: true
   sharp: true
   unrs-resolver: true
 
-onlyBuiltDependencies:
-  - esbuild
-  - msgpackr-extract
-  - sharp
-  - unrs-resolver
+nodeLinker: hoisted
+
+blockExoticSubdeps: false

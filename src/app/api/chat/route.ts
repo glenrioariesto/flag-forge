@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { buildFallbackCompletion } from "@/lib/aiFallback";
 import { extractContext } from "@/lib/chatContext";
+import { checkChatRateLimit, extractClientIp, retryAfterSeconds } from "@/lib/rateLimit";
 
 // Guardrails: public route — bound cost/abuse surface before calling OpenRouter.
 const MAX_MESSAGES = 20;
@@ -53,6 +54,25 @@ function sanitizeMessages(messages: unknown): SanitizeResult {
 }
 
 export async function POST(req: NextRequest) {
+  // Checked before any parsing or spend so an abusive caller cannot make the
+  // server do work on its behalf.
+  const decision = await checkChatRateLimit(req.headers);
+  if (decision.limited) {
+    console.warn(`[AI] Rate limit hit — rejecting request (${extractClientIp(req.headers) ?? "unknown"}).`);
+    return NextResponse.json(
+      { error: "Too many requests. Please wait a moment." },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(retryAfterSeconds(decision)),
+          "X-RateLimit-Limit": String(decision.limit),
+          "X-RateLimit-Remaining": String(decision.remaining),
+          "X-RateLimit-Reset": String(Math.ceil(decision.resetMs / 1000)),
+        },
+      },
+    );
+  }
+
   let body: {
     messages?: unknown;
     model?: string;
