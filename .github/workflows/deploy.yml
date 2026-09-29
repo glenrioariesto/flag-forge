@@ -7,9 +7,17 @@ name: Deploy
 # runner and an arm64 host is the classic way to get a platform-mismatch crash.
 # This job therefore only ships source and invokes deploy/deploy.sh.
 
+# Manual trigger only, deliberately.
+#
+# This workflow needs six repository secrets (VM_SSH_KEY, VM_SSH_KNOWN_HOSTS,
+# VM_SSH_USER, VM_HOST, PUBLIC_APP_URL, PUBLIC_WS_URL) and a production
+# environment. Triggering on every push to main would fail on every commit until
+# those exist, which is worse than no automation at all.
+#
+# To arm automatic deploys once the VM and secrets are in place, add:
+#   push:
+#     branches: ["main"]
 on:
-  push:
-    branches: ["main"]
   workflow_dispatch:
     inputs:
       branch:
@@ -30,14 +38,22 @@ jobs:
 
     steps:
       - name: Wait for CI to pass
-        # On a push to main, CI is the commit that just landed. Block until it
-        # concludes so a broken build never reaches the live stream.
+        # CI only runs for main and for pull requests, so deploying any other
+        # branch has no run to wait for. Gate main strictly; let other branches
+        # through with a warning rather than blocking for 5 minutes on a run
+        # that will never appear.
         run: |
           set -euo pipefail
+          BRANCH="${{ github.event.inputs.branch || 'main' }}"
+          if [ "$BRANCH" != "main" ]; then
+            echo "::warning::deploying '$BRANCH' — CI does not run outside main, gate skipped"
+            exit 0
+          fi
+          # --commit matches only a full SHA; a short hash returns no rows.
           for attempt in $(seq 1 30); do
             status=$(gh run list --commit "$GITHUB_SHA" --workflow CI --json status,conclusion \
-              --jq '.[0] | "\(.status) \(.conclusion)"' 2>/dev/null || echo "missing")
-            echo "CI status: $status"
+              --jq '.[0] | "\(.status) \(.conclusion)"' 2>/dev/null || echo "missing none")
+            echo "CI status: ${status:-missing none}"
             case "$status" in
               "completed success") echo "CI green"; exit 0 ;;
               "completed failure"|"completed cancelled")

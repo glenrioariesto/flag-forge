@@ -120,7 +120,16 @@ Ports `3000`/`3001` are deliberately **not** published to the host. Caddy is the
 
 ### CI/CD
 
-`.github/workflows/deploy.yml` deploys on every push to `main`. It waits for the `CI` workflow to report success first (so a red build never reaches the live stream), then SSHes to the VM and runs `deploy/deploy.sh`, which rebuilds and polls `/api/health` before reporting success.
+`.github/workflows/deploy.yml` runs on **manual dispatch** only (Actions → Deploy → Run workflow). It is deliberately not wired to `push` yet: it needs six repository secrets and a `production` environment that do not exist, and a push-triggered workflow that always fails is worse than no automation. The gate against shipping a red build is still enforced — for `main` the job waits for the `CI` workflow to report success first, then SSHes to the VM and runs `deploy/deploy.sh`, which rebuilds and polls `/api/health` before reporting success.
+
+Once a deploy has run green by hand, add the automatic trigger back:
+
+```yaml
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch: ...
+```
 
 The image is built **on the VM**, not in CI, deliberately: the ARM Ampere host is where the artifact runs, and shipping `node_modules` from an x86 runner to an arm64 target is a reliable way to hit a platform mismatch.
 
