@@ -1,0 +1,92 @@
+name: Deploy
+
+# Deploys to the Oracle Cloud Always-Free VM over SSH.
+#
+# The build happens on the VM, not in CI: the ARM Ampere A1 shape is where the
+# artifact is actually consumed, and shipping node_modules between an x86
+# runner and an arm64 host is the classic way to get a platform-mismatch crash.
+# This job therefore only ships source and invokes deploy/deploy.sh.
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to deploy"
+        required: false
+        default: "main"
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Oracle Cloud VM
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+
+    steps:
+      - name: Wait for CI to pass
+        # On a push to main, CI is the commit that just landed. Block until it
+        # concludes so a broken build never reaches the live stream.
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            status=$(gh run list --commit "$GITHUB_SHA" --workflow CI --json status,conclusion \
+              --jq '.[0] | "\(.status) \(.conclusion)"' 2>/dev/null || echo "missing")
+            echo "CI status: $status"
+            case "$status" in
+              "completed success") echo "CI green"; exit 0 ;;
+              "completed failure"|"completed cancelled")
+                echo "::error::CI failed — aborting deploy"; exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "::error::CI did not finish in time"
+          exit 1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "${{ secrets.VM_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          ssh-keyscan -H github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=yes \
+              "${{ secrets.VM_SSH_USER }}@${{ secrets.VM_HOST }}" \
+              "APP_DIR=/opt/flag-forge BRANCH=${{ github.event.inputs.branch || 'main' }} bash /opt/flag-forge/deploy/deploy.sh"
+
+      - name: Smoke test the public endpoints
+        run: |
+          set -euo pipefail
+          # The overlay's health endpoint proves the container, the HTTP path and
+          # the TLS certificate are all good. Retry because Caddy may still be
+          # fetching its first certificate.
+          echo "Overlay: ${{ secrets.PUBLIC_APP_URL }}"
+          curl -fsS --retry 6 --retry-delay 5 --retry-all-errors \
+            "${{ secrets.PUBLIC_APP_URL }}/api/health"
+          echo
+
+          # A plain GET on the game host is expected to fail: Caddy proxies it to
+          # Colyseus, which only answers WebSocket upgrades. Assert the TLS
+          # handshake succeeded rather than requiring a 2xx body.
+          ws_host="${{ secrets.PUBLIC_WS_URL }}"
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 3 --retry-all-errors "${ws_host}/" || true)
+          case "$code" in
+            ""|000)
+              echo "::error::no response from $ws_host — TLS or DNS is broken"; exit 1 ;;
+            4*|426)
+              echo "ok: $ws_host answered $code (WebSocket-only endpoint, TLS valid)" ;;
+            *)
+              echo "ok: $ws_host answered $code" ;;
+          esac

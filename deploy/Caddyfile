@@ -1,0 +1,50 @@
+# Caddy reverse proxy for Flag Forge.
+#
+# Two hostnames, because the overlay page and the game WebSocket are different
+# origins with different protocols. One hostname would force path-based routing
+# onto the WebSocket upgrade, which Colyseus does not expect by default.
+#
+# Replace the hostnames below with your own DNS records BEFORE deploying. Both
+# must point at the Oracle VM's public IP.
+
+# ---- Overlay (Next.js HTTP) -------------------------------------------------
+app.example.com {
+	encode zstd gzip
+
+	# Pixi.js ships large unminified sources; these headers keep the overlay
+	# snappy on a stream with a modest uplink.
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	# Never cache the overlay itself — it is a live surface, and a stale
+	# bundle means a stale build after each deploy.
+  reverse_proxy app:3000
+}
+
+# ---- Game engine (Colyseus WebSocket) --------------------------------------
+#
+# Colyseus speaks on "/" over WS, so this vhost is proxied wholesale. The
+# upgrade headers below are what let the connection survive the hop; without
+# them the handshake succeeds and then silently drops.
+game.example.com {
+	reverse_proxy app:3001 {
+		header_up Host {host}
+	}
+
+	# WebSocket connections are idle-tolerant but not infinite. Caddy's defaults
+	# are generous; this just keeps a stalled OBS client from pinning a process.
+	transport http {
+		read_timeout 24h
+		write_timeout 24h
+	}
+}
+
+# A bare-host probe that never touches the app, useful to confirm the VM and
+# the TLS certificate are alive before debugging the game stack.
+:80 {
+	respond /health "flag-forge ok" 200
+	respond "flag-forge" 200
+}

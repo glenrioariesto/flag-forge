@@ -1,0 +1,76 @@
+# Oracle Cloud Always-Free deployment (4 core / 24 GB ARM Ampere A1).
+#
+# Topology:
+#   internet ──> caddy (:80/:443, public) ─┬─> app:3000   (Next.js HTTP)
+#                                          └─> app:3001   (Colyseus WSS)
+#
+# The game ports are deliberately NOT published to the host. Caddy is the only
+# public listener, which means TLS terminates in one place and no port other
+# than 80/443 is reachable from outside — including the 3000/3001 pair that
+# would otherwise serve the overlay unencrypted.
+#
+# Both app ports are bound to 0.0.0.0 inside the container because Docker
+# networking requires it for caddy to reach them; they stay unreachable
+# externally because nothing publishes them to the host.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Baked into the browser bundle at build time. Must be the public WSS
+        # address, not localhost — the OBS browser source runs on your PC, not
+        # on the VM.
+        NEXT_PUBLIC_COLYSEUS_URL: ${NEXT_PUBLIC_COLYSEUS_URL:?set NEXT_PUBLIC_COLYSEUS_URL, e.g. wss://game.example.com}
+    image: flag-forge:local
+    container_name: flag-forge-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # server.ts binds 0.0.0.0 so caddy in the compose network can reach it.
+      HOST: 0.0.0.0
+      PORT: 3000
+      COLYSEUS_PORT: 3001
+      # Must mirror the build arg above. .env ships a ws://localhost:3001
+      # placeholder, and a stale runtime value here would silently override the
+      # correct build-time one, leaving OBS unable to reach the game engine.
+      NEXT_PUBLIC_COLYSEUS_URL: ${NEXT_PUBLIC_COLYSEUS_URL:?set NEXT_PUBLIC_COLYSEUS_URL}
+    # No `ports:` here on purpose — see the topology note above.
+    networks:
+      - flagforge
+    # Colyseus keeps per-room state in memory and the YouTube poller holds a
+    # timer, so give the process room to breathe before the kernel OOM-kills it.
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: flag-forge-caddy
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - flagforge
+
+networks:
+  flagforge:
+    driver: bridge
+
+volumes:
+  # Persist the ACME certificates so a restart does not hit Let's Encrypt rate
+  # limits. Losing this volume is the fastest way to get a deploy 429'd.
+  caddy_data:
+  caddy_config:

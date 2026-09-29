@@ -18,6 +18,7 @@ Realtime 24/7 YouTube Live Interactive Country Flag Battle with Procedural Lo-Fi
 - **10-Minute Rounds & Leaderboard**: scores reset every 10 minutes with a winner banner celebration.
 - **OBS Ready Overlay**: glassmorphism cyber-lofi 1080p transparent design at `/overlay`.
 - **AI Flag Chat (optional)**: click a flag to chat with it via OpenRouter (`meta-llama/llama-3.3-70b-instruct:free`). Works without a key — local fallback replies + `offline mode` badge.
+- **One-command Cloud Deploy** (`deploy/`): Docker + Caddy + systemd on an Oracle Cloud Always-Free VM, with CI gated on a green build and a post-deploy health check.
 - **Rate-Limited Public AI Route** (`src/lib/rateLimit.ts`): `POST /api/chat` is unauthenticated, so it is capped per client via an optional Upstash sliding window. Unset credentials fail open with a warning; over-limit callers get `429` + `Retry-After`.
 
 ---
@@ -78,6 +79,57 @@ HOST=localhost
 COLYSEUS_PORT=3001
 PORT=3000
 ```
+
+---
+
+## Deploy (Oracle Cloud Always-Free)
+
+Target: the **4 OCPU / 24 GB ARM Ampere A1** free shape. GCP's free tier (2 vCPU / 1 GB) is a poor fit here — this app runs a persistent custom server that hosts *both* Next.js and a Colyseus WebSocket engine, so it needs a long-lived process with memory headroom, not a serverless function.
+
+### One-time VM setup
+
+On a fresh Ubuntu 24.04 instance, as root:
+
+```bash
+sudo bash deploy/bootstrap-vm.sh
+```
+
+This installs Docker (with log rotation so the 200 GB volume does not fill), adds 2 GB of swap, enables unattended security upgrades, installs `flag-forge.service` so the stack survives a reboot, and clones the repo into `/opt/flag-forge`.
+
+Then, before your first deploy:
+
+1. Edit the hostnames in `deploy/Caddyfile` (it ships with `example.com` placeholders) and point both DNS A records at the VM.
+2. Open TCP `22`, `80`, `443` in the OCI security list.
+3. Create `/opt/flag-forge/.env` from `.env.example` and set `NEXT_PUBLIC_COLYSEUS_URL=wss://game.yourdomain.com`.
+
+```bash
+cd /opt/flag-forge
+bash deploy/deploy.sh
+```
+
+### Architecture
+
+```
+internet ──> caddy (:80/:443) ─┬─> app:3000   Next.js HTTP
+                               └─> app:3001   Colyseus WebSocket
+```
+
+Ports `3000`/`3001` are deliberately **not** published to the host. Caddy is the only public listener, so TLS terminates in one place and nothing but 80/443 is reachable from outside. The two hostnames are separate because the overlay and the game socket are different origins on different protocols; a single hostname would force path-based routing onto the WebSocket upgrade, which Colyseus does not expect.
+
+`NEXT_PUBLIC_COLYSEUS_URL` is inlined into the browser bundle at **build** time, not read at runtime — that is why it is passed as a Docker build arg. A wrong value here is the usual cause of an overlay that loads but never connects to the game engine.
+
+### CI/CD
+
+`.github/workflows/deploy.yml` deploys on every push to `main`. It waits for the `CI` workflow to report success first (so a red build never reaches the live stream), then SSHes to the VM and runs `deploy/deploy.sh`, which rebuilds and polls `/api/health` before reporting success.
+
+The image is built **on the VM**, not in CI, deliberately: the ARM Ampere host is where the artifact runs, and shipping `node_modules` from an x86 runner to an arm64 target is a reliable way to hit a platform mismatch.
+
+Required repository secrets: `VM_SSH_KEY`, `VM_SSH_KNOWN_HOSTS`, `VM_SSH_USER`, `VM_HOST`, `PUBLIC_APP_URL`, `PUBLIC_WS_URL`. Note that `gh run list --commit` only matches a **full** SHA, which is why the CI-wait step queries `$GITHUB_SHA` rather than a short hash.
+
+### Notes
+
+- `tsx` is a runtime dependency, not a dev one. `server.ts` is TypeScript and `pnpm start` executes it through `tsx`, so a production-only install must keep it.
+- The `NEXT_PUBLIC_COLYSEUS_URL` in `.env` must match the build arg. Compose enforces both from the same variable so a stale `ws://localhost:3001` placeholder cannot shadow the real one.
 
 ---
 

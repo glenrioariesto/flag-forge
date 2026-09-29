@@ -1,0 +1,28 @@
+# Dependencies and build output are produced inside the image, not on the host.
+node_modules
+.next
+out
+build
+coverage
+
+# VCS and editor noise
+.git
+.gitignore
+.github
+.vscode
+.idea
+*.swp
+
+# Secrets: baked into the image via compose env_file instead. Never let a local
+# .env get copied into a layer.
+.env
+.env.*
+!.env.example
+
+# Tests and deploy tooling are not needed at runtime
+tests
+scripts
+Dockerfile
+.dockerignore
+docker-compose.yml
+*.md
